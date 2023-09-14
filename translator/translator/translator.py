@@ -4,13 +4,14 @@
 import openai
 import os
 from datetime import datetime
+from dotenv import load_dotenv
 
 import pynecone as pc
 from pynecone.base import Base
 
 
-# openai.api_key = "<YOUR_OPENAI_API_KEY>"
-openai.api_key = ""
+load_dotenv()
+openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 
 def ask_text_to_chatgpt(text) -> str:
@@ -40,44 +41,46 @@ def ask_text_to_chatgpt(text) -> str:
     # API 호출
     response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
                                             messages=messages)
-    translated_text = response['choices'][0]['message']['content']
+    answer = response['choices'][0]['message']['content']
     # Return
-    return translated_text
+    return answer
 
 
 class Message(Base):
     original_text: str
     text: str
     created_at: str
-    to_lang: str
 
 
 class State(pc.State):
     """The app state."""
 
     text: str = ""
-    messages: list[Message] = []
+    messages: list[Message] = [
+        Message(
+            original_text="Answer will appear here.",
+            text="Answer will appear here.",
+            created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"))
+    ]
     # src_lang: str = "한국어"
     # trg_lang: str = "영어"
 
-    @pc.var
+    # @pc.var
     def output(self) -> str:
         if not self.text.strip():
             return "Answer will appear here."
-        translated = ask_text_to_chatgpt(
-            self.text)
-            # self.text, src_lang=self.src_lang, trg_lang=self.trg_lang)
-        return translated
+        answer = ask_text_to_chatgpt(self.text)
+        # translated = ask_text_to_chatgpt(self.text, src_lang=self.src_lang, trg_lang=self.trg_lang)
+        return answer
 
     def post(self):
-        self.messages = [
-            Message(
+        text = self.output()
+        new_message = Message(
                 original_text=self.text,
-                text=self.output,
-                created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"),
-                to_lang=self.trg_lang,
+                text=text,
+                created_at=datetime.now().strftime("%B %d, %Y %I:%M %p")
             )
-        ] + self.messages
+        self.messages += [new_message]
 
 
 # Define views.
@@ -120,7 +123,7 @@ def message(message):
             down_arrow(),
             text_box(message.text),
             pc.box(
-                pc.text(message.to_lang),
+                pc.text("답변"),
                 pc.text(" · ", margin_x="0.3rem"),
                 pc.text(message.created_at),
                 display="flex",
@@ -159,7 +162,7 @@ def output():
             position="absolute",
             top="-0.5rem",
         ),
-        pc.text(State.output),
+        pc.text(State.messages[-1].text),
         padding="1rem",
         border="1px solid #eaeaef",
         margin_top="1rem",
@@ -195,7 +198,7 @@ def index():
         output(),
         pc.button("Post", on_click=State.post, margin_top="1rem"),
         pc.vstack(
-            pc.foreach(State.messages, message),
+            pc.foreach(State.messages[1:], message),
             margin_top="2rem",
             spacing="1rem",
             align_items="left"
@@ -207,5 +210,5 @@ def index():
 
 # Add state and page to the app.
 app = pc.App(state=State)
-app.add_page(index, title="Translator")
+app.add_page(index, title="Chat Bot")
 app.compile()
