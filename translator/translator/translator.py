@@ -9,41 +9,50 @@ from dotenv import load_dotenv
 import pynecone as pc
 from pynecone.base import Base
 
+from langchain.chat_models import ChatOpenAI
+from langchain.chains import SequentialChain
+from langchain.prompts.chat import ChatPromptTemplate
+from langchain.chains import LLMChain
+
 
 load_dotenv()
 openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 
-def ask_text_to_chatgpt(text) -> str:
-    # fewshot 예제를 만들고
-    # def build_fewshot(src_lang, trg_lang):
-    #     src_examples = parallel_example[src_lang]
-    #     trg_examples = parallel_example[trg_lang]
+def load_instruction_file():
+    with open("project_data_카카오싱크.txt", "r") as f:
+        instruction = f.read()
+    return instruction
+
+
+INSTRUCTION = load_instruction_file()
+
+def ask_text_to_chatgpt(question: str) -> str:
+    writer_llm = ChatOpenAI(temperature=0.1, max_tokens=300)
+
+    prompt_template = f"너는 고객 응대 직원이야. 다음 가이드를 기반으로 적절한 대답을 형성해 줘. \n {INSTRUCTION}" + "\n\n질문: {question}\n\n답변:"
+
+    ask_chain = LLMChain(llm=writer_llm, prompt=ChatPromptTemplate.from_template(
+        template=prompt_template
+    ), output_key="answer", verbose=True)
+
+    process_chain = SequentialChain(
+        chains=[ask_chain],
+        input_variables=["question"],
+        verbose=True
+    )
+
+    resp = process_chain({"question": question})
+
+    # messages = [{"role": "system", "content": system_instruction},
+    #             {"role": "user", "content": text}]
     #
-    #     fewshot_messages = []
-    #
-    #     for src_text, trg_text in zip(src_examples, trg_examples):
-    #         fewshot_messages.append({"role": "user", "content": src_text})
-    #         fewshot_messages.append({"role": "assistant", "content": trg_text})
-    #
-    #     return fewshot_messages
-
-    # system instruction 만들고
-    system_instruction = f"assistant는 챗봇으로 동작한다. 사용자의 질문에 적절한 대답을 text로 출력한다."
-
-    # messages를만들고
-    # fewshot_messages = build_fewshot(src_lang=src_lang, trg_lang=trg_lang)
-
-    messages = [{"role": "system", "content": system_instruction},
-                {"role": "user", "content": text}
-                ]
-
-    # API 호출
-    response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
-                                            messages=messages)
-    answer = response['choices'][0]['message']['content']
+    # # API 호출
+    # response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
+    #                                         messages=messages)
+    # answer = response['choices'][0]['message']['content']
     # Return
-    return answer
+    return resp['answer']
 
 
 class Message(Base):
@@ -83,8 +92,9 @@ class State(pc.State):
         self.messages += [new_message]
 
 
+#############################################################
 # Define views.
-
+#############################################################
 
 def header():
     """Basic instructions to get started."""
