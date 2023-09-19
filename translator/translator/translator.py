@@ -2,7 +2,6 @@
 
 # Import pynecone.
 import openai
-import os
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -14,46 +13,75 @@ from langchain.chains import SequentialChain
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain.chains import LLMChain
 
-
 load_dotenv()
-openai.api_key = os.environ.get("OPENAI_API_KEY")
 
 
-def load_instruction_file():
-    with open("project_data_카카오싱크.txt", "r") as f:
-        instruction = f.read()
-    return instruction
+class LLMGateway:
+    def __init__(self, model_name: str, instruction_file_path: str):
+        def load_instruction_file(file_path: str):
+            with open(file_path, "r") as f:
+                instruction = f.read()
+            return instruction
+
+        self.instruction = load_instruction_file(file_path=instruction_file_path)
+        self.llm = ChatOpenAI(model_name=model_name, temperature=0.1, max_tokens=700)
+
+    def ask(self, system_instruction: str, question: str) -> str:
+        messages = [{"role": "system", "content": system_instruction},
+                    {"role": "user", "content": question}]
+
+        # API 호출
+        response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
+                                                messages=messages)
+        answer = response['choices'][0]['message']['content']
+        return answer
+
+    def ask_with_langchain_one_depth(self, question: str) -> str:
+        prompt_template = f"너는 고객 응대 직원이야. 다음 가이드를 기반으로 적절한 대답을 형성해 줘. \n {self.instruction}" + "\n\n질문: {question}\n\n답변:"
+
+        ask_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+            template=prompt_template
+        ), output_key="answer", verbose=True)
+
+        process_chain = SequentialChain(
+            chains=[ask_chain],
+            input_variables=["question"],
+            verbose=True
+        )
+
+        resp = process_chain({"question": question})
+
+        # Return
+        return resp['answer']
+
+    def ask_with_langchain_multi_depth(self, question: str) -> str:
+        ask_prompt_template = f"너는 고객 응대 직원이야. 다음 가이드를 기반으로 적절한 대답을 형성해 줘. \n {self.instruction}" + "\n\n질문: {question}\n\n답변:"
+        ask_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+            template=ask_prompt_template
+        ), output_key="first_answer", verbose=True)
+
+        verify_prompt_template = (f"다음 가이드를 기반으로 질문에 대한 답변이 적절한 지 검토하고 틀린 부분이 있으면 수정한 답변을 텍스트로 출력해줘 \n {self.instruction}" +
+                                  "\n\n질문: {question}\n\n답변:{first_answer} \n\n답변 수정:")
+        verify_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+            template=verify_prompt_template
+        ), output_key="answer", verbose=True)
+
+        process_chain = SequentialChain(
+            chains=[ask_chain, verify_chain],
+            input_variables=["question"],
+            verbose=True
+        )
+
+        resp = process_chain({"question": question})
+
+        # Return
+        return resp['answer']
 
 
-INSTRUCTION = load_instruction_file()
-
-def ask_text_to_chatgpt(question: str) -> str:
-    writer_llm = ChatOpenAI(temperature=0.1, max_tokens=300)
-
-    prompt_template = f"너는 고객 응대 직원이야. 다음 가이드를 기반으로 적절한 대답을 형성해 줘. \n {INSTRUCTION}" + "\n\n질문: {question}\n\n답변:"
-
-    ask_chain = LLMChain(llm=writer_llm, prompt=ChatPromptTemplate.from_template(
-        template=prompt_template
-    ), output_key="answer", verbose=True)
-
-    process_chain = SequentialChain(
-        chains=[ask_chain],
-        input_variables=["question"],
-        verbose=True
-    )
-
-    resp = process_chain({"question": question})
-
-    # messages = [{"role": "system", "content": system_instruction},
-    #             {"role": "user", "content": text}]
-    #
-    # # API 호출
-    # response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
-    #                                         messages=messages)
-    # answer = response['choices'][0]['message']['content']
-    # Return
-    return resp['answer']
-
+gateway = LLMGateway(
+    model_name="gpt-3.5-turbo-16k",
+    instruction_file_path="project_data_카카오싱크.txt"
+)
 
 class Message(Base):
     original_text: str
@@ -71,6 +99,7 @@ class State(pc.State):
             text="Answer will appear here.",
             created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"))
     ]
+
     # src_lang: str = "한국어"
     # trg_lang: str = "영어"
 
@@ -78,17 +107,17 @@ class State(pc.State):
     def output(self) -> str:
         if not self.text.strip():
             return "Answer will appear here."
-        answer = ask_text_to_chatgpt(self.text)
+        answer = gateway.ask_with_langchain_multi_depth(self.text)
         # translated = ask_text_to_chatgpt(self.text, src_lang=self.src_lang, trg_lang=self.trg_lang)
         return answer
 
     def post(self):
         text = self.output()
         new_message = Message(
-                original_text=self.text,
-                text=text,
-                created_at=datetime.now().strftime("%B %d, %Y %I:%M %p")
-            )
+            original_text=self.text,
+            text=text,
+            created_at=datetime.now().strftime("%B %d, %Y %I:%M %p")
+        )
         self.messages += [new_message]
 
 
@@ -99,9 +128,9 @@ class State(pc.State):
 def header():
     """Basic instructions to get started."""
     return pc.box(
-        pc.text("Chat Bot 🌈", font_size="2rem"),
+        pc.text("🌈카카오 싱크 봇 🌈", font_size="2rem"),
         pc.text(
-            "Ask anythings and post them as messages!",
+            "Ask anythings about KakaoSync and post them as messages!",
             margin_top="0.5rem",
             color="#666",
         ),
