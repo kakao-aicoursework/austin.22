@@ -3,3 +3,4 @@ marketingEx
 venv
 .idea
 .env
+/translator/data/upload
