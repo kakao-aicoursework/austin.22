@@ -1,4 +1,6 @@
 """Welcome to Pynecone! This file outlines the steps to create a basic app."""
+import os
+from pathlib import Path
 
 # Import pynecone.
 import openai
@@ -8,80 +10,138 @@ from dotenv import load_dotenv
 import pynecone as pc
 from pynecone.base import Base
 
+from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.chat_models import ChatOpenAI
 from langchain.chains import SequentialChain
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain.chains import LLMChain
+from langchain.vectorstores import Chroma
+from langchain.memory import ConversationBufferMemory, FileChatMessageHistory
 
 load_dotenv()
 
+intent_list = [
+    "bug: Related to a bug, vulnerability, unexpected error with an existing feature",
+    "enhancement: Request for a new feature or enhancement",
+    "question: A specific question about the codebase, product, project, or how to use a feature",
+    "none: None of the above",
+]
+
+
+class HistoryGateway:
+    def __init__(self):
+        self.history_dir = os.path.abspath(os.path.join(os.path.pardir, 'data/history'))
+
+    def load_conversation_history(self, conversation_id: str):
+        file_path = os.path.join(self.history_dir, f'{conversation_id}.json')
+        if not os.path.exists(file_path):
+            with open(file_path, 'w') as f:
+                f.write("[]")
+
+        return FileChatMessageHistory(file_path=file_path)
+
+    def log_user_message(self, history: FileChatMessageHistory, user_message: str):
+        history.add_user_message(user_message)
+
+    def log_bot_message(self, history: FileChatMessageHistory, bot_message: str):
+        history.add_ai_message(bot_message)
+
+    def get_chat_history(self, conversation_id: str):
+        history = self.load_conversation_history(conversation_id)
+        memory = ConversationBufferMemory(
+            memory_key="chat_history",
+            input_key="user_message",
+            chat_memory=history,
+        )
+
+        return memory.buffer
+
+
+class ChromaDbGateway:
+    def __init__(self):
+        self.data_dir = os.path.join(os.path.pardir, 'data')
+        self.chroma_persist_dir = os.path.join(self.data_dir, 'upload/chroma_persist')
+        self.chroma_collection_name = 'dosu-bot'
+        self.db = Chroma(
+            persist_directory=self.chroma_persist_dir,
+            embedding_function=OpenAIEmbeddings(),
+            collection_name=self.chroma_collection_name
+        )
+        self.retriever = self.db.as_retriever()
+
+    def query_db(self, query: str, use_retriever: bool):
+        if use_retriever:
+            docs = self.retriever.get_relevant_documents(query)
+        else:
+            docs = self.db.similarity_search(query)
+
+        str_docs = [doc.page_content for doc in docs]
+        return str_docs
+
 
 class LLMGateway:
-    def __init__(self, model_name: str, instruction_file_path: str):
+    def __init__(self, model_name: str, instruction_file_path: str = None):
         def load_instruction_file(file_path: str):
             with open(file_path, "r") as f:
                 instruction = f.read()
             return instruction
 
-        self.instruction = load_instruction_file(file_path=instruction_file_path)
-        self.llm = ChatOpenAI(model_name=model_name, temperature=0.1, max_tokens=700)
+        if instruction_file_path:
+            self.instruction = load_instruction_file(file_path=instruction_file_path)
+        self.llm = ChatOpenAI(model_name=model_name, temperature=0.0, max_tokens=700)
+        self.chroma = ChromaDbGateway()
+        self.history = HistoryGateway()
 
-    def ask(self, system_instruction: str, question: str) -> str:
-        messages = [{"role": "system", "content": system_instruction},
-                    {"role": "user", "content": question}]
+    def ask_with_langchain_intent(self, question: str, conversation_id: str = 'default_conversation_id') -> str:
+        history_file = self.history.load_conversation_history(conversation_id=conversation_id)
 
-        # API 호출
-        response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
-                                                messages=messages)
-        answer = response['choices'][0]['message']['content']
-        return answer
+        parse_intent_template = f"Your job is to select one intent from the <intent_list>." + "\n\n<intent_list>\n{intent_list}\n</intent> \nUser: {question}\n\n intent:"
+        parse_intent_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+            template=parse_intent_template
+        ), output_key="intent", verbose=True)
 
-    def ask_with_langchain_one_depth(self, question: str) -> str:
-        prompt_template = f"너는 고객 응대 직원이야. 다음 가이드를 기반으로 적절한 대답을 형성해 줘. \n {self.instruction}" + "\n\n질문: {question}\n\n답변:"
+        context = {"intent_list": "\n".join(intent_list), "question": question, "chat_history": self.history.get_chat_history(conversation_id=conversation_id)}
 
-        ask_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
-            template=prompt_template
-        ), output_key="answer", verbose=True)
+        intent = parse_intent_chain.run(context)
 
-        process_chain = SequentialChain(
-            chains=[ask_chain],
-            input_variables=["question"],
-            verbose=True
-        )
+        if intent == "question":
+            context['related_document'] = self.chroma.query_db(query=question, use_retriever=True)
 
-        resp = process_chain({"question": question})
+            ask_prompt_template = "너는 고객 응대 직원이야. 다음 가이드 자료들을 참고해서 적절한 대답을 형성해 줘.\n\n가이드:\n{related_document}\n\nchat history: {chat_history}\n\n질문: {question}\n\n답변:"
+            ask_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+                template=ask_prompt_template
+            ), output_key="first_answer", verbose=True)
 
-        # Return
-        return resp['answer']
+            verify_prompt_template = (
+                    "다음 가이드를 기반으로 질문에 대한 답변이 적절한 지 검토하고 틀린 부분이 있으면 수정한 답변을 텍스트로 출력해줘 \n\n가이드:\n{related_document} " +
+                    "\n\n질문: {question}\n\n답변:{first_answer} \n\n답변 수정:")
+            verify_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+                template=verify_prompt_template
+            ), output_key="answer", verbose=True)
 
-    def ask_with_langchain_multi_depth(self, question: str) -> str:
-        ask_prompt_template = f"너는 고객 응대 직원이야. 다음 가이드를 기반으로 적절한 대답을 형성해 줘. \n {self.instruction}" + "\n\n질문: {question}\n\n답변:"
-        ask_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
-            template=ask_prompt_template
-        ), output_key="first_answer", verbose=True)
+            process_chain = SequentialChain(
+                chains=[ask_chain, verify_chain],
+                input_variables=["related_document", "chat_history", "question"],
+                verbose=True
+            )
 
-        verify_prompt_template = (f"다음 가이드를 기반으로 질문에 대한 답변이 적절한 지 검토하고 틀린 부분이 있으면 수정한 답변을 텍스트로 출력해줘 \n {self.instruction}" +
-                                  "\n\n질문: {question}\n\n답변:{first_answer} \n\n답변 수정:")
-        verify_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
-            template=verify_prompt_template
-        ), output_key="answer", verbose=True)
+            resp = process_chain(context)
 
-        process_chain = SequentialChain(
-            chains=[ask_chain, verify_chain],
-            input_variables=["question"],
-            verbose=True
-        )
+            # Return
+            return resp['answer']
 
-        resp = process_chain({"question": question})
+        else:
+            messages = [{"role": "user", "content": question}]
 
-        # Return
-        return resp['answer']
+            # API 호출
+            response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
+                                                    messages=messages)
+            answer = response['choices'][0]['message']['content']
+            return answer
 
 
-gateway = LLMGateway(
-    model_name="gpt-3.5-turbo-16k",
-    instruction_file_path="project_data_카카오싱크.txt"
-)
+gateway = LLMGateway(model_name="gpt-3.5-turbo-16k")
+
 
 class Message(Base):
     original_text: str
@@ -100,15 +160,11 @@ class State(pc.State):
             created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"))
     ]
 
-    # src_lang: str = "한국어"
-    # trg_lang: str = "영어"
-
     # @pc.var
     def output(self) -> str:
         if not self.text.strip():
             return "Answer will appear here."
-        answer = gateway.ask_with_langchain_multi_depth(self.text)
-        # translated = ask_text_to_chatgpt(self.text, src_lang=self.src_lang, trg_lang=self.trg_lang)
+        answer = gateway.ask_with_langchain_intent(self.text)
         return answer
 
     def post(self):
