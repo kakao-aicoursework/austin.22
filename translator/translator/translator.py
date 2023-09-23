@@ -17,6 +17,8 @@ from langchain.prompts.chat import ChatPromptTemplate
 from langchain.chains import LLMChain
 from langchain.vectorstores import Chroma
 from langchain.memory import ConversationBufferMemory, FileChatMessageHistory
+from langchain.tools import Tool
+from langchain.utilities import GoogleSearchAPIWrapper
 
 load_dotenv()
 
@@ -26,6 +28,22 @@ intent_list = [
     "question: A specific question about the codebase, product, project, or how to use a feature",
     "none: None of the above",
 ]
+
+search = GoogleSearchAPIWrapper(
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    google_cse_id=os.getenv("GOOGLE_CSE_ID")
+)
+
+search_tool = Tool(
+    name="Google Search",
+    description="Search Google for recent results.",
+    func=search.run,
+)
+
+
+def query_web_search(user_message: str) -> str:
+    context = {"user_message": user_message}
+    return search_tool.run(user_message)
 
 
 class HistoryGateway:
@@ -112,15 +130,15 @@ class LLMGateway:
                 template=ask_prompt_template
             ), output_key="first_answer", verbose=True)
 
-            verify_prompt_template = (
+            web_search_prompt_template = (
                     "다음 가이드를 기반으로 질문에 대한 답변이 적절한 지 검토하고 틀린 부분이 있으면 수정한 답변을 텍스트로 출력해줘 \n\n가이드:\n{related_document} " +
                     "\n\n질문: {question}\n\n답변:{first_answer} \n\n답변 수정:")
-            verify_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
-                template=verify_prompt_template
+            web_search_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+                template=web_search_prompt_template
             ), output_key="answer", verbose=True)
 
             process_chain = SequentialChain(
-                chains=[ask_chain, verify_chain],
+                chains=[ask_chain, web_search_chain],
                 input_variables=["related_document", "chat_history", "question"],
                 verbose=True
             )
