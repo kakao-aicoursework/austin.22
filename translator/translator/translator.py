@@ -1,32 +1,27 @@
 """Welcome to Pynecone! This file outlines the steps to create a basic app."""
 import os
-from pathlib import Path
-
-# Import pynecone.
-import openai
 from datetime import datetime
-from dotenv import load_dotenv
 
 import pynecone as pc
-from pynecone.base import Base
-
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
-from langchain.chains import SequentialChain
-from langchain.prompts.chat import ChatPromptTemplate
+from dotenv import load_dotenv
 from langchain.chains import LLMChain
-from langchain.vectorstores import Chroma
+from langchain.chat_models import ChatOpenAI
+from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.memory import ConversationBufferMemory, FileChatMessageHistory
+from langchain.prompts.chat import ChatPromptTemplate
 from langchain.tools import Tool
 from langchain.utilities import GoogleSearchAPIWrapper
+from langchain.vectorstores import Chroma
+from pynecone.base import Base
+
+from translator import prompt_templates as PromptTemplates
 
 load_dotenv()
 
 intent_list = [
     "bug: Related to a bug, vulnerability, unexpected error with an existing feature",
-    "enhancement: Request for a new feature or enhancement",
-    "question: A specific question about the codebase, product, project, or how to use a feature",
-    "none: None of the above",
+    "question: A specific question about feature, usage, or behavior",
+    "not_relevant: Not relevant to the 카카오싱크, 카카오소셜 or 카카오톡채널"
 ]
 
 search = GoogleSearchAPIWrapper(
@@ -98,64 +93,70 @@ class ChromaDbGateway:
 
 
 class LLMGateway:
-    def __init__(self, model_name: str, instruction_file_path: str = None):
-        def load_instruction_file(file_path: str):
-            with open(file_path, "r") as f:
-                instruction = f.read()
-            return instruction
-
-        if instruction_file_path:
-            self.instruction = load_instruction_file(file_path=instruction_file_path)
+    def __init__(self, model_name: str):
         self.llm = ChatOpenAI(model_name=model_name, temperature=0.0, max_tokens=700)
         self.chroma = ChromaDbGateway()
         self.history = HistoryGateway()
 
-    def ask_with_langchain_intent(self, question: str, conversation_id: str = 'default_conversation_id') -> str:
+    def create_chain(self, template: str, output_key: str):
+        return LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
+            template=template
+        ), output_key=output_key, verbose=False)
+
+    def ask_with_langchain(self, question: str, conversation_id: str = 'default_conversation_id') -> str:
+        answer = ""
         history_file = self.history.load_conversation_history(conversation_id=conversation_id)
 
-        parse_intent_template = f"Your job is to select one intent from the <intent_list>." + "\n\n<intent_list>\n{intent_list}\n</intent> \nUser: {question}\n\n intent:"
-        parse_intent_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
-            template=parse_intent_template
-        ), output_key="intent", verbose=True)
+        parse_intent_chain = self.create_chain(template=PromptTemplates.parse_intent_template, output_key="intent")
 
-        context = {"intent_list": "\n".join(intent_list), "question": question, "chat_history": self.history.get_chat_history(conversation_id=conversation_id)}
-
+        context = {
+            "intent_list": "\n".join(intent_list),
+            "question": question,
+            "chat_history": self.history.get_chat_history(conversation_id=conversation_id)
+        }
         intent = parse_intent_chain.run(context)
-
-        if intent == "question":
+        print("intent: ", intent)
+        if intent == "question" or intent == "bug":
             context['related_document'] = self.chroma.query_db(query=question, use_retriever=True)
+            print("related_document: ", context['related_document'])
 
-            ask_prompt_template = "너는 고객 응대 직원이야. 다음 가이드 자료들을 참고해서 적절한 대답을 형성해 줘.\n\n가이드:\n{related_document}\n\nchat history: {chat_history}\n\n질문: {question}\n\n답변:"
-            ask_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
-                template=ask_prompt_template
-            ), output_key="first_answer", verbose=True)
-
-            web_search_prompt_template = (
-                    "다음 가이드를 기반으로 질문에 대한 답변이 적절한 지 검토하고 틀린 부분이 있으면 수정한 답변을 텍스트로 출력해줘 \n\n가이드:\n{related_document} " +
-                    "\n\n질문: {question}\n\n답변:{first_answer} \n\n답변 수정:")
-            web_search_chain = LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
-                template=web_search_prompt_template
-            ), output_key="answer", verbose=True)
-
-            process_chain = SequentialChain(
-                chains=[ask_chain, web_search_chain],
-                input_variables=["related_document", "chat_history", "question"],
-                verbose=True
+            ask_need_web_search_chain = self.create_chain(
+                template=PromptTemplates.need_web_search_template,
+                output_key="need_web_search"
             )
+            need_web_search = ask_need_web_search_chain.run(context)
+            print("need web search", need_web_search)
 
-            resp = process_chain(context)
-
-            # Return
-            return resp['answer']
+            if need_web_search == "N":
+                ask_with_guide_chain = self.create_chain(
+                    template=PromptTemplates.answer_with_guide_template,
+                    output_key="answer"
+                )
+                answer = ask_with_guide_chain.run(context)
+            else:
+                ask_web_search_chain = self.create_chain(
+                    template=PromptTemplates.answer_with_web_search_template,
+                    output_key="answer"
+                )
+                answer = ask_web_search_chain.run(context)
+                print("web search result:", answer)
+            # process_chain = SequentialChain(
+            #     chains=[],
+            #     input_variables=["related_document", "chat_history", "question"],
+            #     verbose=True
+            # )
+            #
+            # resp = process_chain(context)
 
         else:
-            messages = [{"role": "user", "content": question}]
-
-            # API 호출
-            response = openai.ChatCompletion.create(model="gpt-3.5-turbo",
-                                                    messages=messages)
-            answer = response['choices'][0]['message']['content']
-            return answer
+            answer_not_relevant_chain = self.create_chain(
+                template=PromptTemplates.answer_not_relevant_template,
+                output_key="answer"
+            )
+            answer = answer_not_relevant_chain.run(context)
+        self.history.log_user_message(history=history_file, user_message=question)
+        self.history.log_bot_message(history=history_file, bot_message=answer)
+        return answer
 
 
 gateway = LLMGateway(model_name="gpt-3.5-turbo-16k")
@@ -182,7 +183,7 @@ class State(pc.State):
     def output(self) -> str:
         if not self.text.strip():
             return "Answer will appear here."
-        answer = gateway.ask_with_langchain_intent(self.text)
+        answer = gateway.ask_with_langchain(self.text)
         return answer
 
     def post(self):
