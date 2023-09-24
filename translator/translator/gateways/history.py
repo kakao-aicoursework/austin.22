@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from langchain.memory import ConversationBufferMemory, FileChatMessageHistory
 
@@ -6,9 +7,12 @@ from langchain.memory import ConversationBufferMemory, FileChatMessageHistory
 class HistoryGateway:
     def __init__(self):
         self.history_dir = os.path.abspath(os.path.join(os.path.curdir, 'data/history'))
+        for file in os.listdir(self.history_dir):
+            os.remove(os.path.join(self.history_dir, file))
 
     def load_conversation_history(self, conversation_id: str):
         file_path = os.path.join(self.history_dir, f'{conversation_id}.json')
+
         if not os.path.exists(file_path):
             with open(file_path, 'w') as f:
                 f.write("[]")

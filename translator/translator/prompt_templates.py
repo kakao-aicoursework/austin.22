@@ -14,10 +14,13 @@ User: {question}
 
 answer:"""
 
-answer_with_guide_template = """You are an agent. Please refer to the following document and answer the question.
+answer_with_guide_template = """You are an agent. Please refer to the following document and answer the question considering the context.
 <document>
 {related_document}
 </document>
+
+<context>
+{chat_history}
 User: {question}
 
 answer:"""
@@ -34,8 +37,8 @@ compress_web_search_template = """Your job is to extract content related to <que
 
 Compressed:"""
 
-answer_with_web_search_template = """You are an agent. Please refer to the following web search result and document. 
-Answer the question. In case that you can't find the answer, apologize to the client.
+answer_with_web_search_template = """You are an agent. Please refer to the following web search result and document.
+Answer the question considering the context. In case that you can't find the answer, apologize to the client.
 
 <web_search_result>
 {compressed_web_search}
@@ -45,12 +48,17 @@ Answer the question. In case that you can't find the answer, apologize to the cl
 {related_document}
 </document>
 
+<context>
+{chat_history}
 User: {question}
 
 answer:"""
 
-answer_not_relevant_template = """you are an agent answer questions related to 카카오 싱크, 카카오톡채널, 카카오소셜. Please answer the question.
+answer_not_relevant_template = """you are an agent answer questions related to 카카오 싱크, 카카오톡채널, 카카오소셜. Please answer the question considering the context.
 role: agent
+
+<context>
+{chat_history}
 User: {question}
 
 answer:"""

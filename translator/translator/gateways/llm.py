@@ -30,7 +30,7 @@ class LLMGateway:
     def create_chain(self, template: str, output_key: str):
         return LLMChain(llm=self.llm, prompt=ChatPromptTemplate.from_template(
             template=template
-        ), output_key=output_key, verbose=False)
+        ), output_key=output_key, verbose=True)
 
     def ask_with_langchain(self, question: str, conversation_id: str = 'default_conversation_id') -> str:
         if self.debug:
@@ -84,7 +84,7 @@ class LLMGateway:
 
                 process_chain = SequentialChain(
                     chains=[compress_web_search_chain, ask_web_search_chain],
-                    input_variables=["question", "web_search_result", "related_document"],
+                    input_variables=["question", "web_search_result", "related_document", "chat_history"],
                     verbose=True
                 )
 
