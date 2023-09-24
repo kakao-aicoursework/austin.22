@@ -6,7 +6,7 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 
 class ChromaDbGateway:
     def __init__(self):
-        self.data_dir = os.path.join(os.path.pardir, 'data')
+        self.data_dir = os.path.join(os.path.pardir, 'translator/data')
         self.chroma_persist_dir = os.path.join(self.data_dir, 'upload/chroma_persist')
         self.chroma_collection_name = 'dosu-bot'
         self.db = Chroma(

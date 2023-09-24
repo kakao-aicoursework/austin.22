@@ -6,7 +6,7 @@ User: {question}
 
 intent:"""
 
-need_web_search_template = """Please answer if you can find the answer in the following documents. select Y or N.
+need_web_search_template = """If <document> can help you to answer the <question>, answer Y. If not, answer N.
 <document>
 {related_document}
 </document>
@@ -22,10 +22,29 @@ User: {question}
 
 answer:"""
 
-answer_with_web_search_template = """You are an agent. Please refer to the following web search result and answer the question.
-<web_search>
-{web_search}
-</web_search>
+compress_web_search_template = """Your job is to extract content related to <question> from <search_results>
+
+<question>
+{question}
+</question>
+
+<search_results>
+{web_search_result}
+</search_results>
+
+Compressed:"""
+
+answer_with_web_search_template = """You are an agent. Please refer to the following web search result and document. 
+Answer the question. In case that you can't find the answer, apologize to the client.
+
+<web_search_result>
+{compressed_web_search}
+</web_search_result>
+
+<document>
+{related_document}
+</document>
+
 User: {question}
 
 answer:"""

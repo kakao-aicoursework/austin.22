@@ -4,7 +4,7 @@ from datetime import datetime
 from translator.models.Message import Message
 from translator.gateways.llm import LLMGateway
 
-gateway = LLMGateway(model_name="gpt-3.5-turbo-16k")
+gateway = LLMGateway(model_name="gpt-3.5-turbo-16k", debug=True)
 
 
 class State(pc.State):

@@ -4,7 +4,7 @@ from langchain.utilities import GoogleSearchAPIWrapper
 from langchain.tools import Tool
 
 
-class WebSearch:
+class WebSearchGateway:
     def __init__(self):
         self.search = GoogleSearchAPIWrapper(
             google_api_key=os.getenv("GOOGLE_API_KEY"),

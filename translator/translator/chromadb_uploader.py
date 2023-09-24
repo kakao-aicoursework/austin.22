@@ -18,15 +18,16 @@ def upload_embeddings_from_file(file_path):
     loader = TextLoader
     documents = loader(file_path).load()
 
-    text_splitter = CharacterTextSplitter(chunk_size=300, chunk_overlap=50)
+    text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     docs = text_splitter.split_documents(documents)
+    print(docs)
 
     Chroma.from_documents(
         docs,
         OpenAIEmbeddings(),
         collection_name=CHROMA_COLLECTION_NAME,
         persist_directory=CHROMA_PERSIST_DIR
-    )
+    ).persist()
 
 
 def upload_embeddings_from_dir(dir_path):
