@@ -96,11 +96,44 @@ class LLMGateway:
                     print("web search stage answer:", answer)
 
         else:
-            answer_not_relevant_chain = self.create_chain(
-                template=PromptTemplates.answer_not_relevant_template,
-                output_key="answer"
+            # answer_not_relevant_chain = self.create_chain(
+            #     template=PromptTemplates.answer_not_relevant_template,
+            #     output_key="answer"
+            # )
+            # answer = answer_not_relevant_chain.run(context)
+
+            ask_need_web_search_chain = self.create_chain(
+                template=PromptTemplates.need_web_search_template_2,
+                output_key="need_web_search"
             )
-            answer = answer_not_relevant_chain.run(context)
+            need_web_search = ask_need_web_search_chain.run(context)
+            if need_web_search == 'N':
+                answer_with_context_chain = self.create_chain(
+                    template=PromptTemplates.answer_with_context_template,
+                    output_key="answer"
+                )
+                answer = answer_with_context_chain.run(context)
+            else:
+                context['web_search_result'] = self.web_search.query_web_search(question)
+                context['related_document'] = None
+
+                compress_web_search_chain = self.create_chain(
+                    template=PromptTemplates.compress_web_search_template_v2,
+                    output_key="compressed_web_search"
+                )
+                ask_web_search_chain = self.create_chain(
+                    template=PromptTemplates.answer_with_web_search_template,
+                    output_key="answer"
+                )
+
+                process_chain = SequentialChain(
+                    chains=[compress_web_search_chain, ask_web_search_chain],
+                    input_variables=["question", "web_search_result", "related_document", "chat_history"],
+                    verbose=True
+                )
+
+                answer = process_chain(context)['answer']
+
         self.history.log_user_message(history=history_file, user_message=question)
         self.history.log_bot_message(history=history_file, bot_message=answer)
         return answer
