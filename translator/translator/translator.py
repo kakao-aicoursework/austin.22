@@ -3,6 +3,8 @@ import pynecone as pc
 from dotenv import load_dotenv
 from translator.models.State import State
 
+from translator.models.Message import Message
+
 load_dotenv()
 
 
@@ -33,9 +35,20 @@ def down_arrow():
 def text_box(text):
     return pc.text(
         text,
+        background_color="#ffea00",
+        padding="1rem",
+        border_radius="8px",
+        align_self="flex-end",
+    )
+
+
+def ai_text_box(text):
+    return pc.text(
+        text,
         background_color="#fff",
         padding="1rem",
         border_radius="8px",
+        align_self="flex-start",
     )
 
 
@@ -43,18 +56,21 @@ def message(message):
     return pc.box(
         pc.vstack(
             text_box(message.original_text),
-            down_arrow(),
-            text_box(message.text),
             pc.box(
-                pc.text("답변"),
-                pc.text(" · ", margin_x="0.3rem"),
                 pc.text(message.created_at),
                 display="flex",
                 font_size="0.8rem",
                 color="#666",
+                align_self="flex-end",
             ),
-            spacing="0.3rem",
-            align_items="left",
+            ai_text_box(message.text),
+            pc.box(
+                pc.text(message.created_at),
+                display="flex",
+                font_size="0.8rem",
+                color="#666",
+                align_self="flex-start",
+            ),
         ),
         background_color="#f5f5f5",
         padding="1rem",
@@ -98,22 +114,28 @@ def index():
     """The main view."""
     return pc.container(
         header(),
-        pc.input(
-            placeholder="Text to ask",
-            on_blur=State.set_text,
-            margin_top="1rem",
-            border_color="#eaeaef"
-        ),
-        output(),
-        pc.button("Post", on_click=State.post, margin_top="1rem"),
+        # output(),
         pc.vstack(
             pc.foreach(State.messages[1:], message),
             margin_top="2rem",
             spacing="1rem",
-            align_items="left"
+            align_items="left",
+            height="65vh",
+            overflow_y="scroll",
+            background_color="#f5f5f5",
+        ),
+        pc.hstack(
+            pc.input(
+                placeholder="Text to ask",
+                on_blur=State.set_text,
+                margin_top="auto",
+                border_color="#eaeaef",
+            ),
+            pc.button("Post", on_click=State.post, margin="auto"),
+            margin="2rem"
         ),
         padding="2rem",
-        max_width="600px"
+        max_width="600px",
     )
 
 

@@ -1,16 +1,22 @@
-parse_intent_template = """Your job is to select one intent from the <intent_list>.
+parse_intent_template = """Your job is to select one user question's intent from the <intent_list>.
 <intent_list>
 {intent_list}
 </intent>
+
+<question>
 User: {question}
+</question>
 
 intent:"""
 
-need_web_search_template = """If <document> can help you to answer the <question>, answer Y. If not, answer N.
+need_web_search_template = """If <document> can help you to answer the <question>, answer N. If not, answer Y.
 <document>
 {related_document}
 </document>
+
+<question>
 User: {question}
+</question>
 
 answer:"""
 
@@ -21,9 +27,15 @@ answer_with_guide_template = """You are an agent. Please refer to the following 
 
 <context>
 {chat_history}
-User: {question}
+</context>
 
-answer:"""
+<question>
+User: {question}
+</question>
+
+Let’s think step by step.
+
+agent:"""
 
 compress_web_search_template = """Your job is to extract content related to <question> from <search_results>
 
@@ -37,28 +49,36 @@ compress_web_search_template = """Your job is to extract content related to <que
 
 Compressed:"""
 
-answer_with_web_search_template = """You are an agent. Please refer to the following web search result and document.
-Answer the question considering the context. In case that you can't find the answer, apologize to the client.
+answer_with_web_search_template = """You are an agent. Please refer to the following <web search result> and <related_document>.
+Answer the question considering the context. Let’s think step by step.
 
 <web_search_result>
 {compressed_web_search}
 </web_search_result>
 
-<document>
+<related_document>
 {related_document}
-</document>
+</related_document>
 
 <context>
 {chat_history}
+</context>
+
+<question>
 User: {question}
+</question>
 
-answer:"""
+Agent:"""
 
-answer_not_relevant_template = """you are an agent answer questions related to 카카오 싱크, 카카오톡채널, 카카오소셜. Please answer the question considering the context.
+answer_not_relevant_template = """you are an agent answer questions related to 카카오 싱크, 카카오톡 채널, 카카오 소셜. Please answer the question considering the context.
 role: agent
 
 <context>
 {chat_history}
-User: {question}
+</context>
 
-answer:"""
+<question>
+User: {question}
+</question>
+
+Agent:"""

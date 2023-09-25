@@ -12,9 +12,10 @@ class State(pc.State):
     text: str = ""
     messages: list[Message] = [
         Message(
-            original_text="Answer will appear here.",
+            original_text="fff",
             text="Answer will appear here.",
-            created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"))
+            created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"),
+        ),
     ]
 
     # @pc.var
@@ -29,6 +30,6 @@ class State(pc.State):
         new_message = Message(
             original_text=self.text,
             text=text,
-            created_at=datetime.now().strftime("%B %d, %Y %I:%M %p")
+            created_at=datetime.now().strftime("%B %d, %Y %I:%M %p"),
         )
         self.messages += [new_message]
